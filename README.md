@@ -1,4 +1,6 @@
-# Getting Started with Create React App
+# Events App
+
+A modern, mobile-optimized React events application with Material UI and Firebase backend. This app provides comprehensive event management features including RSVP tracking, guest communication, budget management tools, social media integration, and planning for future AI and API enhancements.
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
@@ -39,32 +41,81 @@ Instead, it will copy all the configuration files and the transitive dependencie
 
 You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
 
+## Features
+
+### Core Features
+
+- **Event Management**: Create, edit, and manage events with detailed information
+- **RSVP Tracking**: Track guest responses and manage attendee lists
+- **Guest Communication**: Send messages and updates to event attendees
+- **Budget Management**: Track expenses, revenue, and overall budget health
+- **Social Media Integration**: Share events on social platforms and schedule promotional posts
+- **Calendar View**: Visualize events in a calendar format
+
+### Technical Features
+
+- Mobile-first, responsive design
+- Material UI components for modern UI/UX
+- Firebase backend for authentication and data storage
+- React Router for navigation
+- Syncfusion components for advanced UI elements
+
+## Project Structure
+
+```plaintext
+events-app/
+├── public/
+├── src/
+│   ├── components/
+│   │   ├── budget/
+│   │   ├── events/
+│   │   ├── guests/
+│   │   ├── integrations/
+│   │   ├── layout/
+│   │   └── social/
+│   ├── pages/
+│   ├── services/
+│   ├── theme/
+│   ├── App.js
+│   └── index.js
+└── package.json
+```
+
+## Navigation
+
+The app includes a consistent navigation system across event-related pages using the `EventNavigation` component, which provides access to:
+
+- Event Details
+- Guest Management
+- Budget Management
+- Social Media Promotion
+- Schedule
+- Gallery
+
+## Future Enhancements
+
+### AI Features (Planned)
+
+- Smart guest recommendations
+- Automated content generation
+- Sentiment analysis for feedback
+- Chatbot assistant
+
+### API Integrations (Planned)
+
+- Payment gateways
+- Contact enrichment
+- Translation services
+- Image recognition
+- Push notifications
+- Analytics integration
+- Identity verification
+
 ## Learn More
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+For more information about the technologies used:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- [React Documentation](https://reactjs.org/)
+- [Material UI Documentation](https://mui.com/)
+- [Firebase Documentation](https://firebase.google.com/docs)
+- [Syncfusion React Components](https://www.syncfusion.com/react-components)

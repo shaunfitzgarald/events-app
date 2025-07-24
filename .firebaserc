@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "events-app": "events-app-969d8",
+    "default": "events-app-969d8"
+  },
+  "targets": {},
+  "etags": {}
+}
