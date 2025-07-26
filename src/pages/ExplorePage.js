@@ -163,8 +163,18 @@ function ExplorePage() {
                   <CardMedia
                     component="img"
                     height="140"
-                    image={event.image || 'https://source.unsplash.com/random/800x400/?event'}
+                    image={
+                      event.images && Array.isArray(event.images) && event.images.length > 0 && event.images[0]
+                        ? event.images[0]
+                        : event.image && typeof event.image === 'string' && event.image.startsWith('http')
+                          ? event.image
+                          : 'https://source.unsplash.com/random/800x400/?event'
+                    }
                     alt={event.title}
+                    onError={(e) => {
+                      console.log('Image failed to load:', e.target.src);
+                      e.target.src = 'https://source.unsplash.com/random/800x400/?event';
+                    }}
                   />
                   <CardContent sx={{ flexGrow: 1 }}>
                     <Typography gutterBottom variant="h6" component="div">
