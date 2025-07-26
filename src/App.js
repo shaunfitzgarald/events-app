@@ -19,6 +19,7 @@ import EventsPage from './pages/EventsPage';
 import CalendarPage from './pages/CalendarPage';
 import EventDetailPage from './pages/EventDetailPage';
 import CreateEventPage from './pages/CreateEventPage';
+import EditEventPage from './pages/EditEventPage';
 import GuestManagementPage from './pages/GuestManagementPage';
 import BudgetManagementPage from './pages/BudgetManagementPage';
 import SocialMediaPage from './pages/SocialMediaPage';
@@ -58,6 +59,11 @@ function App() {
               <Route path="/create-event" element={
                 <ProtectedRoute>
                   <CreateEventPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/events/:id/edit" element={
+                <ProtectedRoute>
+                  <EditEventPage />
                 </ProtectedRoute>
               } />
               <Route path="/events/:eventId/guests" element={

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -39,8 +39,8 @@ import ReceiptIcon from '@mui/icons-material/Receipt';
 import PieChartIcon from '@mui/icons-material/PieChart';
 import { PieChart } from '@mui/x-charts/PieChart';
 
-// Mock data for budget categories
-const budgetCategories = [
+// Default budget categories (only used for new item suggestions)
+const DEFAULT_BUDGET_CATEGORIES = [
   'Venue',
   'Catering',
   'Decorations',
@@ -53,23 +53,13 @@ const budgetCategories = [
   'Miscellaneous'
 ];
 
-// Mock data for budget items
-const initialBudgetItems = [
-  { id: '1', category: 'Venue', description: 'Conference Hall Rental', amount: 2500, paid: true, vendor: 'City Convention Center', dueDate: '2023-07-30' },
-  { id: '2', category: 'Catering', description: 'Lunch Buffet (50 people)', amount: 1250, paid: true, vendor: 'Gourmet Caterers', dueDate: '2023-08-01' },
-  { id: '3', category: 'Entertainment', description: 'DJ Services', amount: 800, paid: false, vendor: 'Beats Entertainment', dueDate: '2023-08-10' },
-  { id: '4', category: 'Marketing', description: 'Social Media Ads', amount: 500, paid: true, vendor: 'Digital Marketing Inc.', dueDate: '2023-07-15' },
-  { id: '5', category: 'Decorations', description: 'Stage Setup and Lighting', amount: 1200, paid: false, vendor: 'Event Decorators', dueDate: '2023-08-05' },
-  { id: '6', category: 'Equipment', description: 'Audio/Visual Equipment', amount: 1500, paid: false, vendor: 'Tech Rentals', dueDate: '2023-08-12' },
-];
-
-function BudgetManager({ eventId }) {
+function BudgetManager({ eventId, event }) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
   // State
-  const [budgetItems, setBudgetItems] = useState(initialBudgetItems);
-  const [totalBudget, setTotalBudget] = useState(10000);
+  const [budgetItems, setBudgetItems] = useState([]);
+  const [totalBudget, setTotalBudget] = useState(0);
   const [openAddDialog, setOpenAddDialog] = useState(false);
   const [openEditDialog, setOpenEditDialog] = useState(false);
   const [currentItem, setCurrentItem] = useState(null);
@@ -81,20 +71,109 @@ function BudgetManager({ eventId }) {
     vendor: '',
     dueDate: ''
   });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [categories, setCategories] = useState([]);
+  
+  // Save budget data to Firestore
+  const saveBudgetData = async (updatedItems, updatedTotalBudget) => {
+    try {
+      // Import Firestore functions
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const { db } = await import('../../services/firebase');
+      
+      // Ensure items are in the correct format
+      const safeItems = Array.isArray(updatedItems) ? updatedItems : [];
+      const safeBudget = typeof updatedTotalBudget === 'number' ? updatedTotalBudget : 0;
+      
+      console.log('Saving budget data:', safeItems, safeBudget);
+      
+      // Update event document
+      const eventRef = doc(db, 'events', eventId);
+      await updateDoc(eventRef, {
+        budget: safeItems,
+        totalBudget: safeBudget
+      });
+      
+      return true;
+    } catch (err) {
+      console.error('Error saving budget data:', err);
+      setError('Failed to save budget data');
+      return false;
+    }
+  };
+  
+  // Fetch budget data from Firestore
+  useEffect(() => {
+    const fetchBudgetData = async () => {
+      if (!eventId) {
+        setError('No event ID provided');
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        
+        // Import Firestore functions
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../../services/firebase');
+        
+        // Get event document
+        const eventRef = doc(db, 'events', eventId);
+        const eventSnapshot = await getDoc(eventRef);
+        
+        if (eventSnapshot.exists()) {
+          const eventData = eventSnapshot.data();
+          
+          // Get budget items - ensure it's always an array
+          let budgetData = eventData.budget;
+          if (!Array.isArray(budgetData)) {
+            budgetData = [];
+            console.log('Budget data was not an array, initializing empty array');
+          }
+          
+          setBudgetItems(budgetData);
+          
+          // Get total budget - ensure it's always a number
+          const totalBudgetValue = typeof eventData.totalBudget === 'number' ? eventData.totalBudget : 0;
+          setTotalBudget(totalBudgetValue);
+          
+          // Extract unique categories from budget items
+          const uniqueCategories = [...new Set(budgetData.map(item => item.category).filter(Boolean))];
+          setCategories(uniqueCategories.length > 0 ? uniqueCategories : DEFAULT_BUDGET_CATEGORIES);
+          
+          setError(null);
+        } else {
+          setError('Event not found');
+          setBudgetItems([]);
+        }
+      } catch (err) {
+        console.error('Error fetching budget data:', err);
+        setError('Failed to load budget data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchBudgetData();
+  }, [eventId]);
+  
+  // Ensure budgetItems is always an array
+  const safeItems = Array.isArray(budgetItems) ? budgetItems : [];
   
   // Calculate totals
-  const totalExpenses = budgetItems.reduce((sum, item) => sum + item.amount, 0);
-  const totalPaid = budgetItems.filter(item => item.paid).reduce((sum, item) => sum + item.amount, 0);
+  const totalExpenses = safeItems.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+  const totalPaid = safeItems.filter(item => item.paid).reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
   const totalUnpaid = totalExpenses - totalPaid;
   const remainingBudget = totalBudget - totalExpenses;
-  const budgetProgress = (totalExpenses / totalBudget) * 100;
+  const budgetProgress = totalBudget > 0 ? (totalExpenses / totalBudget) * 100 : 0;
   
   // Calculate category totals for pie chart
-  const categoryTotals = budgetItems.reduce((acc, item) => {
+  const categoryTotals = safeItems.reduce((acc, item) => {
     if (!acc[item.category]) {
       acc[item.category] = 0;
     }
-    acc[item.category] += item.amount;
+    acc[item.category] += parseFloat(item.amount) || 0;
     return acc;
   }, {});
   
@@ -151,33 +230,121 @@ function BudgetManager({ eventId }) {
     });
   };
   
-  // Handle add item
-  const handleAddItem = () => {
-    const item = {
-      id: Date.now().toString(),
-      ...newItem,
-      amount: parseFloat(newItem.amount)
-    };
-    
-    setBudgetItems([...budgetItems, item]);
-    handleAddDialogClose();
+  // Handle edit input change
+  const handleEditInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setCurrentItem({
+      ...currentItem,
+      [name]: type === 'checkbox' ? checked : value
+    });
   };
   
-  // Handle edit item
-  const handleEditItem = () => {
+  // Add new budget item
+  const handleAddItem = async () => {
+    try {
+      // Validate inputs
+      if (!newItem.category || !newItem.description || !newItem.amount) {
+        alert('Please fill in all required fields (Category, Description, and Amount)');
+        return;
+      }
+      
+      const item = {
+        ...newItem,
+        id: Date.now().toString(),
+        amount: parseFloat(newItem.amount) || 0,
+        paid: newItem.paid || false,
+        vendor: newItem.vendor || '',
+        dueDate: newItem.dueDate || ''
+      };
+      
+      // Use safeItems to ensure we're working with an array
+      const updatedItems = [...safeItems, item];
+      setBudgetItems(updatedItems);
+      
+      // Add category to list if it's new
+      if (!categories.includes(item.category)) {
+        setCategories([...categories, item.category]);
+      }
+      
+      // Save to Firestore
+      await saveBudgetData(updatedItems, totalBudget);
+      
+      // Reset form
+      setNewItem({
+        category: '',
+        description: '',
+        amount: '',
+        paid: false,
+        vendor: '',
+        dueDate: ''
+      });
+      
+      // Close dialog
+      setOpenAddDialog(false);
+    } catch (error) {
+      console.error('Error adding budget item:', error);
+      setError('Failed to add budget item');
+    }
+    
+    setOpenAddDialog(false);
+    setNewItem({
+      category: '',
+      description: '',
+      amount: '',
+      paid: false,
+      vendor: '',
+      dueDate: ''
+    });
+  };
+  
+  // Update total budget
+  const handleUpdateTotalBudget = async () => {
+    // Validate input
+    if (!totalBudget || totalBudget <= 0) {
+      return;
+    }
+    
+    const updatedTotalBudget = parseFloat(totalBudget);
+    setTotalBudget(updatedTotalBudget);
+    
+    // Save to Firestore
+    await saveBudgetData(budgetItems, updatedTotalBudget);
+  };
+  
+  // Edit budget item
+  const handleEditItem = async () => {
+    if (!currentItem) return;
+    
+    // Validate inputs
+    if (!currentItem.category || !currentItem.description || !currentItem.amount) {
+      return;
+    }
+    
     const updatedItems = budgetItems.map(item => 
-      item.id === currentItem.id 
-        ? { ...item, ...newItem, amount: parseFloat(newItem.amount) } 
-        : item
+      item.id === currentItem.id ? { ...currentItem, amount: parseFloat(currentItem.amount) } : item
     );
     
     setBudgetItems(updatedItems);
-    handleEditDialogClose();
+    
+    // Add category to list if it's new
+    if (!categories.includes(currentItem.category)) {
+      setCategories([...categories, currentItem.category]);
+    }
+    
+    // Save to Firestore
+    await saveBudgetData(updatedItems, totalBudget);
+    
+    setOpenEditDialog(false);
+    setCurrentItem(null);
   };
   
-  // Handle delete item
-  const handleDeleteItem = (id) => {
-    setBudgetItems(budgetItems.filter(item => item.id !== id));
+  // Delete budget item
+  const handleDeleteItem = async (id) => {
+    const updatedItems = budgetItems.filter(item => item.id !== id);
+    setBudgetItems(updatedItems);
+    
+    // Save to Firestore
+    await saveBudgetData(updatedItems, totalBudget);
   };
   
   // Handle total budget change
@@ -340,7 +507,7 @@ function BudgetManager({ eventId }) {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {budgetItems.map((item) => (
+                  {safeItems.map((item) => (
                     <TableRow key={item.id}>
                       <TableCell>{item.category}</TableCell>
                       <TableCell>
@@ -393,16 +560,18 @@ function BudgetManager({ eventId }) {
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
+              <FormControl fullWidth margin="normal">
                 <InputLabel id="category-label">Category</InputLabel>
                 <Select
                   labelId="category-label"
+                  id="category"
                   name="category"
                   value={newItem.category}
-                  onChange={handleInputChange}
                   label="Category"
+                  onChange={handleInputChange}
+                  required
                 >
-                  {budgetCategories.map((category) => (
+                  {categories.map((category) => (
                     <MenuItem key={category} value={category}>
                       {category}
                     </MenuItem>
@@ -495,16 +664,18 @@ function BudgetManager({ eventId }) {
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 0.5 }}>
             <Grid item xs={12} sm={6}>
-              <FormControl fullWidth>
+              <FormControl fullWidth margin="normal">
                 <InputLabel id="edit-category-label">Category</InputLabel>
                 <Select
                   labelId="edit-category-label"
+                  id="edit-category"
                   name="category"
-                  value={newItem.category}
-                  onChange={handleInputChange}
+                  value={currentItem?.category || ''}
                   label="Category"
+                  onChange={handleEditInputChange}
+                  required
                 >
-                  {budgetCategories.map((category) => (
+                  {categories.map((category) => (
                     <MenuItem key={category} value={category}>
                       {category}
                     </MenuItem>

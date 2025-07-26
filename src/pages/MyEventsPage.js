@@ -35,7 +35,7 @@ function MyEventsPage() {
       try {
         // Import Firestore functions
         const { collection, query, where, getDocs } = await import('firebase/firestore');
-        const { db } = await import('../firebase/config');
+        const { db } = await import('../services/firebase');
         
         // Get events created by the current user
         const eventsRef = collection(db, 'events');
@@ -53,7 +53,24 @@ function MyEventsPage() {
         
         // Transform events data
         const eventsData = eventsSnapshot.docs.map(doc => {
-          return { id: doc.id, ...doc.data() };
+          const data = doc.data();
+          
+          // Ensure we have a valid images array
+          if (!data.images) data.images = [];
+          if (data.image && !data.images.includes(data.image)) {
+            data.images.unshift(data.image);
+          }
+          
+          // Ensure we have proper date objects
+          if (data.startDate && typeof data.startDate === 'object' && data.startDate.toDate) {
+            data.startDate = data.startDate.toDate();
+          }
+          
+          if (data.endDate && typeof data.endDate === 'object' && data.endDate.toDate) {
+            data.endDate = data.endDate.toDate();
+          }
+          
+          return { id: doc.id, ...data };
         });
         
         console.log('Fetched events:', eventsData);
