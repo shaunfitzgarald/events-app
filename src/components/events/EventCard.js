@@ -25,9 +25,17 @@ function EventCard({ event }) {
   const formatDate = (dateStr) => {
     if (!dateStr) return '';
     try {
-      return dayjs(dateStr).format('MMM D, YYYY');
+      // Handle both timestamp objects and string dates
+      if (dateStr && typeof dateStr === 'object' && dateStr.toDate) {
+        // Handle Firestore timestamp
+        return dayjs(dateStr.toDate()).format('MMM D, YYYY');
+      } else {
+        // Handle string date
+        return dayjs(dateStr).format('MMM D, YYYY');
+      }
     } catch (error) {
-      return dateStr;
+      console.error('Date formatting error:', error);
+      return 'Date unavailable';
     }
   };
   
@@ -52,8 +60,18 @@ function EventCard({ event }) {
       <CardMedia
         component="img"
         height="140"
-        image={event.image || 'https://source.unsplash.com/random/800x400/?event'}
+        image={
+          event.images && Array.isArray(event.images) && event.images.length > 0 && event.images[0]
+            ? event.images[0]
+            : event.image && typeof event.image === 'string' && event.image.startsWith('http')
+              ? event.image
+              : 'https://source.unsplash.com/random/800x400/?event'
+        }
         alt={event.title}
+        onError={(e) => {
+          console.log('Image failed to load:', e.target.src);
+          e.target.src = 'https://source.unsplash.com/random/800x400/?event';
+        }}
       />
       
       {/* Event category chip */}
@@ -91,7 +109,7 @@ function EventCard({ event }) {
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
           <CalendarTodayIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />
           <Typography variant="body2" color="text.secondary">
-            {formatDate(event.date)}
+            {formatDate(event.startDate || event.date)}
           </Typography>
         </Box>
         

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -24,7 +24,10 @@ import {
   FormControlLabel,
   Alert,
   useMediaQuery,
-  List
+  List,
+  ImageList,
+  ImageListItem,
+  ImageListItemBar
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -34,6 +37,10 @@ import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import DeleteIcon from '@mui/icons-material/Delete';
 import AddIcon from '@mui/icons-material/Add';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
+import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
+import { DndProvider, useDrag, useDrop } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
+import { uploadMultipleImages } from '../services/storageService';
 
 // Mock categories
 const categories = [
@@ -48,6 +55,77 @@ const categories = [
   'Health & Wellness',
   'Other'
 ];
+
+// Draggable Image Item Component
+const DraggableImageItem = ({ imageUrl, index, moveImage, removeImage }) => {
+  const ref = React.useRef(null);
+  
+  const [, drop] = useDrop({
+    accept: 'image',
+    hover(item, monitor) {
+      if (!ref.current) {
+        return;
+      }
+      const dragIndex = item.index;
+      const hoverIndex = index;
+      
+      // Don't replace items with themselves
+      if (dragIndex === hoverIndex) {
+        return;
+      }
+      
+      moveImage(dragIndex, hoverIndex);
+      item.index = hoverIndex;
+    },
+  });
+  
+  const [{ isDragging }, drag] = useDrag({
+    type: 'image',
+    item: { index },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  });
+  
+  drag(drop(ref));
+  
+  return (
+    <Paper
+      ref={ref}
+      sx={{
+        p: 1,
+        mb: 1,
+        display: 'flex',
+        alignItems: 'center',
+        opacity: isDragging ? 0.5 : 1,
+        backgroundColor: isDragging ? '#f0f0f0' : 'white',
+        boxShadow: isDragging ? 3 : 1,
+      }}
+    >
+      <DragIndicatorIcon sx={{ mr: 1, cursor: 'move', color: 'text.secondary' }} />
+      <Box sx={{ width: 80, height: 80, mr: 2, flexShrink: 0 }}>
+        <img
+          src={imageUrl}
+          alt={`Event image ${index + 1}`}
+          style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }}
+        />
+      </Box>
+      <Box sx={{ flexGrow: 1 }}>
+        <Typography variant="body2" color="text.secondary">
+          Image {index + 1}
+          {index === 0 && (
+            <Typography component="span" variant="caption" color="primary" sx={{ ml: 1 }}>
+              (Main image)
+            </Typography>
+          )}
+        </Typography>
+      </Box>
+      <IconButton onClick={() => removeImage(index)} color="error" size="small">
+        <DeleteIcon />
+      </IconButton>
+    </Paper>
+  );
+};
 
 function CreateEventPage() {
   const theme = useTheme();
@@ -69,8 +147,10 @@ function CreateEventPage() {
     location: '',
     address: '',
     description: '',
-    image: null,
-    imagePreview: null,
+    image: null, // Keep for backward compatibility
+    imagePreview: null, // Keep for backward compatibility
+    images: [], // Array of image files
+    imagePreviews: [], // Array of image preview URLs
     price: '',
     isPaid: false,
     maxAttendees: '',
@@ -82,6 +162,10 @@ function CreateEventPage() {
     customQuestions: [],
     schedule: [{ day: 'Day 1', items: [{ time: '', title: '' }] }]
   });
+  
+  // State for image upload
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   
   // State for form validation
   const [errors, setErrors] = useState({});
@@ -121,20 +205,78 @@ function CreateEventPage() {
   
   // Handle image upload
   const handleImageChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
+    if (e.target.files && e.target.files.length > 0) {
+      const filesArray = Array.from(e.target.files);
+      const newImagePreviews = [];
       
-      reader.onload = (loadEvent) => {
+      // Process each file and create previews
+      Promise.all(
+        filesArray.map((file) => {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (loadEvent) => {
+              newImagePreviews.push(loadEvent.target.result);
+              resolve();
+            };
+            reader.readAsDataURL(file);
+          });
+        })
+      ).then(() => {
         setEventData({
           ...eventData,
-          image: file,
-          imagePreview: loadEvent.target.result
+          // For backward compatibility
+          image: filesArray[0],
+          imagePreview: newImagePreviews[0],
+          // For multiple images
+          images: [...eventData.images, ...filesArray],
+          imagePreviews: [...eventData.imagePreviews, ...newImagePreviews]
         });
-      };
-      
-      reader.readAsDataURL(file);
+      });
     }
+  };
+  
+  // Handle image removal
+  const handleRemoveImage = (index) => {
+    const newImages = [...eventData.images];
+    const newImagePreviews = [...eventData.imagePreviews];
+    
+    newImages.splice(index, 1);
+    newImagePreviews.splice(index, 1);
+    
+    setEventData({
+      ...eventData,
+      images: newImages,
+      imagePreviews: newImagePreviews,
+      // Update single image fields for backward compatibility
+      image: newImages.length > 0 ? newImages[0] : null,
+      imagePreview: newImagePreviews.length > 0 ? newImagePreviews[0] : null
+    });
+  };
+  
+  // Handle image reordering
+  const moveImage = (dragIndex, hoverIndex) => {
+    const draggedImage = eventData.images[dragIndex];
+    const draggedPreview = eventData.imagePreviews[dragIndex];
+    
+    const newImages = [...eventData.images];
+    const newImagePreviews = [...eventData.imagePreviews];
+    
+    // Remove dragged items
+    newImages.splice(dragIndex, 1);
+    newImagePreviews.splice(dragIndex, 1);
+    
+    // Insert at new position
+    newImages.splice(hoverIndex, 0, draggedImage);
+    newImagePreviews.splice(hoverIndex, 0, draggedPreview);
+    
+    setEventData({
+      ...eventData,
+      images: newImages,
+      imagePreviews: newImagePreviews,
+      // Update single image fields for backward compatibility
+      image: newImages.length > 0 ? newImages[0] : null,
+      imagePreview: newImagePreviews.length > 0 ? newImagePreviews[0] : null
+    });
   };
   
   // Handle schedule changes
@@ -304,7 +446,10 @@ function CreateEventPage() {
                 {errors.category && <FormHelperText>{errors.category}</FormHelperText>}
               </FormControl>
             </Grid>
-            <Grid item xs={12} sm={6}>
+            <Grid item xs={12}>
+              <Typography variant="h6" gutterBottom>
+                Event Images
+              </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <Button
                   variant="outlined"
@@ -312,39 +457,59 @@ function CreateEventPage() {
                   startIcon={<AddPhotoAlternateIcon />}
                   sx={{ height: '56px' }}
                 >
-                  {eventData.image ? 'Change Image' : 'Upload Event Image'}
+                  {eventData.images.length > 0 ? 'Add More Images' : 'Upload Event Images'}
                   <input
                     type="file"
                     hidden
                     accept="image/*"
+                    multiple
                     onChange={handleImageChange}
                   />
                 </Button>
-                {eventData.imagePreview && (
-                  <Box sx={{ position: 'relative', width: '100%', height: '100px' }}>
-                    <img
-                      src={eventData.imagePreview}
-                      alt="Event preview"
-                      style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        borderRadius: '4px'
-                      }}
-                    />
-                    <IconButton
-                      sx={{
-                        position: 'absolute',
-                        top: 0,
-                        right: 0,
-                        bgcolor: 'rgba(0,0,0,0.5)',
-                        color: 'white',
-                        '&:hover': { bgcolor: 'rgba(0,0,0,0.7)' }
-                      }}
-                      onClick={() => setEventData({ ...eventData, image: null, imagePreview: null })}
-                    >
-                      <DeleteIcon />
-                    </IconButton>
+                
+                {/* Display uploaded images with drag-and-drop reordering */}
+                {eventData.imagePreviews.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>
+                      Drag to reorder images. The first image will be used as the main event image.
+                    </Typography>
+                    
+                    <DndProvider backend={HTML5Backend}>
+                      <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
+                        {eventData.imagePreviews.map((preview, index) => (
+                          <DraggableImageItem
+                            key={index}
+                            index={index}
+                            imageUrl={preview}
+                            moveImage={moveImage}
+                            removeImage={handleRemoveImage}
+                          />
+                        ))}
+                      </Box>
+                    </DndProvider>
+                    
+                    {/* Also show as grid for visual reference */}
+                    <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
+                      Image Gallery Preview:
+                    </Typography>
+                    <ImageList sx={{ maxHeight: 200 }} cols={3} rowHeight={100}>
+                      {eventData.imagePreviews.map((preview, index) => (
+                        <ImageListItem key={index}>
+                          <img
+                            src={preview}
+                            alt={`Event image ${index + 1}`}
+                            loading="lazy"
+                            style={{ height: '100%', objectFit: 'cover' }}
+                          />
+                          {index === 0 && (
+                            <ImageListItemBar
+                              title="Main"
+                              sx={{ background: 'rgba(0,0,0,0.3)' }}
+                            />
+                          )}
+                        </ImageListItem>
+                      ))}
+                    </ImageList>
                   </Box>
                 )}
               </Box>

@@ -54,7 +54,7 @@ function ExplorePage() {
       try {
         // Import Firestore functions
         const { collection, getDocs, query, where, orderBy, limit } = await import('firebase/firestore');
-        const { db } = await import('../firebase/config');
+        const { db } = await import('../services/firebase');
         
         // Get events collection
         const eventsRef = collection(db, 'events');

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
   Container,
@@ -28,7 +28,10 @@ import {
   IconButton,
   Tabs,
   Tab,
-  useMediaQuery
+  useMediaQuery,
+  MobileStepper,
+  Alert,
+  Snackbar
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import LocationOnIcon from '@mui/icons-material/LocationOn';
@@ -41,9 +44,28 @@ import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import KeyboardArrowLeft from '@mui/icons-material/KeyboardArrowLeft';
+import KeyboardArrowRight from '@mui/icons-material/KeyboardArrowRight';
+import ImageIcon from '@mui/icons-material/Image';
+import dayjs from 'dayjs';
 
-// Import EventNavigation component
+// Import eventService
+import { getEventById, deleteEvent } from '../services/eventService';
+
+// Import auth context
+import { useAuth } from '../contexts/AuthContext';
+
+// Import components
 import EventNavigation from '../components/events/EventNavigation';
+import EventAdminManagement from '../components/events/EventAdminManagement';
+
+// Format date using dayjs
+const formatDate = (date) => {
+  if (!date) return 'Date TBD';
+  return dayjs(date).format('MMM D, YYYY');
+};
 
 // We'll fetch real event data from Firestore
 // Keeping this commented out for reference
@@ -126,6 +148,8 @@ const mockEvents = [
 
 function EventDetailPage() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
@@ -141,15 +165,66 @@ function EventDetailPage() {
     response: 'attending',
     message: '',
   });
+  const [canEdit, setCanEdit] = useState(false);
+  
+  // Image gallery state
+  const [activeStep, setActiveStep] = useState(0);
+  const [openImageDialog, setOpenImageDialog] = useState(false);
+  
+  // Delete event state
+  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleteSuccess, setDeleteSuccess] = useState(false);
 
   // Handle tab change
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
   };
 
-  // Toggle favorite
+  // Handle toggle favorite
   const handleToggleFavorite = () => {
     setFavorite(!favorite);
+  };
+
+  // Handle edit event
+  const handleEditEvent = () => {
+    navigate(`/events/${id}/edit`);
+  };
+  
+  // Handle delete event dialog
+  const handleOpenDeleteDialog = () => {
+    setOpenDeleteDialog(true);
+  };
+  
+  const handleCloseDeleteDialog = () => {
+    setOpenDeleteDialog(false);
+  };
+  
+  // Handle delete event
+  const handleDeleteEvent = async () => {
+    try {
+      setDeleting(true);
+      setDeleteError('');
+      
+      // Delete the event
+      await deleteEvent(id);
+      
+      // Show success message
+      setDeleteSuccess(true);
+      
+      // Close the dialog
+      setOpenDeleteDialog(false);
+      
+      // Navigate back to events page after a short delay
+      setTimeout(() => {
+        navigate('/events');
+      }, 2000);
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      setDeleteError('Failed to delete event. Please try again.');
+      setDeleting(false);
+    }
   };
 
   // Open RSVP dialog
@@ -185,60 +260,74 @@ function EventDetailPage() {
     // In a real app, this would send data to Firebase
     console.log('RSVP submitted:', rsvpData);
     setRsvpSubmitted(true);
-    
-    // Close dialog after 2 seconds
-    setTimeout(() => {
-      setOpenRsvpDialog(false);
-      setRsvpSubmitted(false);
-      setRsvpData({
-        name: '',
-        email: '',
-        response: 'attending',
-        message: '',
-      });
-    }, 2000);
+    handleCloseRsvpDialog();
   };
 
-  // Fetch event data from Firestore
-  useEffect(() => {
-    const fetchEventData = async () => {
-      try {
-        // Import Firestore functions
-        const { doc, getDoc } = await import('firebase/firestore');
-        const { db } = await import('../firebase/config');
-        
-        // Get event document reference
-        const eventRef = doc(db, 'events', id);
-        const eventSnap = await getDoc(eventRef);
-        
-        if (eventSnap.exists()) {
-          // Get event data and add the id
-          const eventData = { id: eventSnap.id, ...eventSnap.data() };
-          console.log('Fetched event data:', eventData);
-          
-          // Convert Firestore timestamp to date object if needed
-          if (eventData.createdAt && typeof eventData.createdAt.toDate === 'function') {
-            eventData.createdAt = eventData.createdAt.toDate();
-          }
-          if (eventData.updatedAt && typeof eventData.updatedAt.toDate === 'function') {
-            eventData.updatedAt = eventData.updatedAt.toDate();
-          }
-          
-          setEvent(eventData);
-        } else {
-          console.log('No such event found with ID:', id);
-          setEvent(null);
-        }
-      } catch (error) {
-        console.error('Error fetching event:', error);
-        setEvent(null);
-      } finally {
-        setLoading(false);
+  // Image gallery navigation
+  const handleNext = () => {
+    setActiveStep((prevActiveStep) => {
+      const images = event.images || [event.image];
+      return prevActiveStep === images.length - 1 ? 0 : prevActiveStep + 1;
+    });
+  };
+
+  const handleBack = () => {
+    setActiveStep((prevActiveStep) => {
+      const images = event.images || [event.image];
+      return prevActiveStep === 0 ? images.length - 1 : prevActiveStep - 1;
+    });
+  };
+
+  // Open full-screen image dialog
+  const handleOpenImageDialog = () => {
+    setOpenImageDialog(true);
+  };
+
+  // Close full-screen image dialog
+  const handleCloseImageDialog = () => {
+    setOpenImageDialog(false);
+  };
+
+  // Define fetchEventData function at component level
+  const fetchEventData = async () => {
+    try {
+      // Import Firestore functions
+      const { doc, getDoc } = await import('firebase/firestore');
+      const { db } = await import('../services/firebase');
+      
+      // Get event by ID
+      const eventData = await getEventById(id);
+      console.log('Fetched event data:', eventData);
+      
+      // Convert Firestore timestamp to date object if needed
+      if (eventData.createdAt && typeof eventData.createdAt.toDate === 'function') {
+        eventData.createdAt = eventData.createdAt.toDate();
       }
-    };
-    
+      if (eventData.updatedAt && typeof eventData.updatedAt.toDate === 'function') {
+        eventData.updatedAt = eventData.updatedAt.toDate();
+      }
+      
+      setEvent(eventData);
+      
+      // Check if current user can edit this event (creator or admin)
+      if (currentUser && (eventData.createdBy === currentUser.uid || 
+          (eventData.admins && eventData.admins.includes(currentUser.uid)))) {
+        setCanEdit(true);
+      } else {
+        setCanEdit(false);
+      }
+    } catch (error) {
+      console.error('Error fetching event:', error);
+      setEvent(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Fetch event data when component mounts or ID changes
+  useEffect(() => {
     fetchEventData();
-  }, [id]);
+  }, [id, currentUser]);
 
   // Loading state
   if (loading) {
@@ -272,16 +361,54 @@ function EventDetailPage() {
           mb: 4,
         }}
       >
+        {/* Image Gallery */}
         <Box
           component="img"
-          src={event.image}
-          alt={event.title}
+          src={event.images && Array.isArray(event.images) && event.images.length > 0 
+            ? event.images[activeStep] 
+            : event.image}
+          alt={`${event.title} - Image ${activeStep + 1}`}
           sx={{
             width: '100%',
             height: '100%',
             objectFit: 'cover',
+            cursor: 'pointer',
           }}
+          onClick={handleOpenImageDialog}
         />
+        
+        {/* Image Navigation */}
+        {event.images && Array.isArray(event.images) && event.images.length > 1 && (
+          <MobileStepper
+            steps={event.images.length}
+            position="bottom"
+            activeStep={activeStep}
+            sx={{
+              position: 'absolute',
+              bottom: 0,
+              width: '100%',
+              background: 'rgba(0,0,0,0.5)',
+            }}
+            nextButton={
+              <IconButton 
+                onClick={handleNext}
+                size="small"
+                sx={{ color: 'white' }}
+              >
+                <KeyboardArrowRight />
+              </IconButton>
+            }
+            backButton={
+              <IconButton 
+                onClick={handleBack}
+                size="small"
+                sx={{ color: 'white' }}
+              >
+                <KeyboardArrowLeft />
+              </IconButton>
+            }
+          />
+        )}
       </Box>
       
       <Container maxWidth="lg" sx={{ mb: 8 }}>
@@ -296,6 +423,11 @@ function EventDetailPage() {
                   About This Event
                 </Typography>
                 <Box>
+                  {canEdit && (
+                    <IconButton onClick={handleEditEvent} color="primary" title="Edit Event">
+                      <EditIcon />
+                    </IconButton>
+                  )}
                   <IconButton onClick={handleToggleFavorite} color="primary">
                     {favorite ? <FavoriteIcon /> : <FavoriteBorderIcon />}
                   </IconButton>
@@ -320,6 +452,7 @@ function EventDetailPage() {
                 <Tab label="Schedule" icon={<ScheduleIcon />} iconPosition="start" />
                 <Tab label="Attendees" icon={<PeopleIcon />} iconPosition="start" />
                 <Tab label="Details" icon={<InfoIcon />} iconPosition="start" />
+                {canEdit && <Tab label="Admins" icon={<PersonAddIcon />} iconPosition="start" />}
               </Tabs>
               <Box sx={{ p: 3 }}>
                 {tabValue === 0 && (
@@ -334,14 +467,18 @@ function EventDetailPage() {
                             {day.day}
                           </Typography>
                           <List dense>
-                            {day.events.map((item, idx) => (
+                            {day.events && Array.isArray(day.events) ? day.events.map((item, idx) => (
                               <ListItem key={idx}>
                                 <ListItemText
                                   primary={item.activity}
                                   secondary={item.time}
                                 />
                               </ListItem>
-                            ))}
+                            )) : (
+                              <ListItem>
+                                <ListItemText primary="No events scheduled for this day" />
+                              </ListItem>
+                            )}
                           </List>
                           {index < event.schedule.length - 1 && <Divider sx={{ my: 1 }} />}
                         </Box>
@@ -414,6 +551,17 @@ function EventDetailPage() {
                     </Grid>
                   </Box>
                 )}
+                {tabValue === 3 && canEdit && (
+                  <Box>
+                    <EventAdminManagement 
+                      event={event} 
+                      onAdminChange={() => {
+                        // Refresh event data when admins change
+                        fetchEventData();
+                      }} 
+                    />
+                  </Box>
+                )}
               </Box>
             </Paper>
           </Grid>
@@ -441,10 +589,10 @@ function EventDetailPage() {
                 <CalendarTodayIcon sx={{ mr: 1, color: 'text.secondary' }} />
                 <Box>
                   <Typography variant="body1">
-                    {event.date}
+                    {formatDate(event.date)}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {event.startTime} - {event.endTime}
+                    {event.time} - {event.endTime || 'TBD'}
                   </Typography>
                 </Box>
               </Box>
@@ -460,7 +608,25 @@ function EventDetailPage() {
                   </Typography>
                 </Box>
               </Box>
-              
+              {canEdit && (
+                <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<EditIcon />}
+                    onClick={handleEditEvent}
+                  >
+                    Edit Event
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={handleOpenDeleteDialog}
+                  >
+                    Delete Event
+                  </Button>
+                </Box>
+              )}
               <Button
                 variant="contained"
                 color="primary"
@@ -574,6 +740,107 @@ function EventDetailPage() {
             </Button>
           )}
         </DialogActions>
+      </Dialog>
+      {/* Delete Event Confirmation Dialog */}
+      <Dialog
+        open={openDeleteDialog}
+        onClose={handleCloseDeleteDialog}
+      >
+        <DialogTitle>Delete Event</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Are you sure you want to delete this event? This action cannot be undone.
+          </DialogContentText>
+          {deleteError && (
+            <Alert severity="error" sx={{ mt: 2 }}>
+              {deleteError}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseDeleteDialog} disabled={deleting}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={handleDeleteEvent} 
+            color="error" 
+            variant="contained"
+            disabled={deleting}
+          >
+            {deleting ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Success Snackbar */}
+      <Snackbar 
+        open={deleteSuccess} 
+        autoHideDuration={2000}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert severity="success" sx={{ width: '100%' }}>
+          Event successfully deleted!
+        </Alert>
+      </Snackbar>
+      
+      {/* Full-screen Image Dialog */}
+      <Dialog
+        open={openImageDialog}
+        onClose={handleCloseImageDialog}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogContent sx={{ p: 0, position: 'relative' }}>
+          <IconButton
+            onClick={handleCloseImageDialog}
+            sx={{ position: 'absolute', top: 8, right: 8, color: 'white', bgcolor: 'rgba(0,0,0,0.5)' }}
+          >
+            <EditIcon />
+          </IconButton>
+          
+          <Box
+            component="img"
+            src={event.images && Array.isArray(event.images) && event.images.length > 0 
+              ? event.images[activeStep] 
+              : event.image}
+            alt={`${event.title} - Image ${activeStep + 1}`}
+            sx={{
+              width: '100%',
+              height: 'auto',
+              maxHeight: '80vh',
+              objectFit: 'contain',
+            }}
+          />
+          
+          {event.images && Array.isArray(event.images) && event.images.length > 1 && (
+            <MobileStepper
+              steps={event.images.length}
+              position="static"
+              activeStep={activeStep}
+              sx={{
+                bgcolor: '#f5f5f5',
+              }}
+              nextButton={
+                <Button
+                  size="small"
+                  onClick={handleNext}
+                  endIcon={<KeyboardArrowRight />}
+                >
+                  Next
+                </Button>
+              }
+              backButton={
+                <Button
+                  size="small"
+                  onClick={handleBack}
+                  startIcon={<KeyboardArrowLeft />}
+                >
+                  Back
+                </Button>
+              }
+            />
+          )}
+        </DialogContent>
       </Dialog>
     </React.Fragment>
   );

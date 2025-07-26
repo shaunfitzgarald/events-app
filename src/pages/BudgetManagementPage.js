@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 import {
   Box,
   Container,
@@ -36,30 +37,21 @@ import AddIcon from '@mui/icons-material/Add';
 import BudgetManager from '../components/budget/BudgetManager';
 import EventNavigation from '../components/events/EventNavigation';
 
-// Mock event data
-const mockEvent = {
-  id: '123',
-  title: 'Summer Tech Conference 2023',
-  date: 'August 15, 2023',
-  location: 'San Francisco Convention Center'
-};
 
-// Mock revenue sources
-const mockRevenueSources = [
-  { id: '1', name: 'Ticket Sales', amount: 5000, received: true, date: '2023-07-10' },
-  { id: '2', name: 'Sponsorship - TechCorp', amount: 3000, received: true, date: '2023-06-25' },
-  { id: '3', name: 'Sponsorship - DevInc', amount: 2000, received: false, date: '2023-08-01' },
-  { id: '4', name: 'Workshop Registrations', amount: 1500, received: true, date: '2023-07-20' },
-];
 
 function BudgetManagementPage() {
   const theme = useTheme();
   const { eventId } = useParams();
+  const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   
   // State
   const [tabValue, setTabValue] = useState(0);
-  const [revenueSources, setRevenueSources] = useState(mockRevenueSources);
+  const [event, setEvent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [revenueSources, setRevenueSources] = useState([]);
   const [openRevenueDialog, setOpenRevenueDialog] = useState(false);
   const [newRevenue, setNewRevenue] = useState({
     name: '',
@@ -68,14 +60,83 @@ function BudgetManagementPage() {
     date: new Date().toISOString().split('T')[0]
   });
   
+  // Fetch event data
+  useEffect(() => {
+    const fetchEventData = async () => {
+      if (!eventId || !currentUser) return;
+      
+      try {
+        setLoading(true);
+        
+        // Import Firestore functions
+        const { doc, getDoc } = await import('firebase/firestore');
+        const { db } = await import('../services/firebase');
+        
+        // Get event document
+        const eventRef = doc(db, 'events', eventId);
+        const eventSnap = await getDoc(eventRef);
+        
+        if (eventSnap.exists()) {
+          const eventData = { id: eventSnap.id, ...eventSnap.data() };
+          
+          // Check if current user is the creator or an admin
+          if (eventData.createdBy !== currentUser.uid && 
+              (!eventData.admins || !eventData.admins.includes(currentUser.uid))) {
+            setError('You do not have permission to manage this event\'s budget');
+            setEvent(null);
+          } else {
+            setEvent(eventData);
+            
+            // Get revenue sources
+            const revenueData = eventData.revenue || [];
+            setRevenueSources(revenueData);
+            
+            setError(null);
+          }
+        } else {
+          setError('Event not found');
+          setEvent(null);
+        }
+      } catch (err) {
+        console.error('Error fetching event data:', err);
+        setError('Failed to load event data');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchEventData();
+  }, [eventId, currentUser]);
+  
   // Calculate totals
-  const totalRevenue = revenueSources.reduce((sum, source) => sum + source.amount, 0);
-  const receivedRevenue = revenueSources.filter(source => source.received).reduce((sum, source) => sum + source.amount, 0);
+  const totalRevenue = revenueSources.reduce((sum, source) => sum + parseFloat(source.amount || 0), 0);
+  const receivedRevenue = revenueSources.filter(source => source.received).reduce((sum, source) => sum + parseFloat(source.amount || 0), 0);
   const pendingRevenue = totalRevenue - receivedRevenue;
   
   // Handle tab change
   const handleTabChange = (event, newValue) => {
     setTabValue(newValue);
+  };
+  
+  // Save revenue data to Firestore
+  const saveRevenueData = async (updatedSources) => {
+    try {
+      // Import Firestore functions
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const { db } = await import('../services/firebase');
+      
+      // Update event document
+      const eventRef = doc(db, 'events', eventId);
+      await updateDoc(eventRef, {
+        revenue: updatedSources
+      });
+      
+      return true;
+    } catch (err) {
+      console.error('Error saving revenue data:', err);
+      setError('Failed to save revenue data');
+      return false;
+    }
   };
   
   // Handle revenue dialog open
@@ -103,16 +164,35 @@ function BudgetManagementPage() {
     });
   };
   
-  // Handle add revenue
-  const handleAddRevenue = () => {
+  // Add revenue source
+  const handleAddRevenue = async () => {
+    // Validate inputs
+    if (!newRevenue.name || !newRevenue.amount) {
+      return;
+    }
+    
     const revenue = {
-      id: Date.now().toString(),
       ...newRevenue,
+      id: Date.now().toString(),
       amount: parseFloat(newRevenue.amount)
     };
     
-    setRevenueSources([...revenueSources, revenue]);
+    const updatedSources = [...revenueSources, revenue];
+    setRevenueSources(updatedSources);
+    
+    // Save to Firestore
+    await saveRevenueData(updatedSources);
+    
     handleRevenueDialogClose();
+  };
+  
+  // Delete revenue source
+  const handleDeleteRevenue = async (id) => {
+    const updatedSources = revenueSources.filter(source => source.id !== id);
+    setRevenueSources(updatedSources);
+    
+    // Save to Firestore
+    await saveRevenueData(updatedSources);
   };
   
   return (
@@ -121,7 +201,7 @@ function BudgetManagementPage() {
         Budget Management
       </Typography>
       <Typography variant="subtitle1" color="text.secondary" gutterBottom>
-        {mockEvent.title} - {mockEvent.date}
+        {event?.title || 'Loading...'} - {event?.startDate ? new Date(event.startDate.seconds * 1000).toLocaleDateString() : 'Date TBD'}
       </Typography>
       
       {/* Event Navigation */}
@@ -152,9 +232,9 @@ function BudgetManagementPage() {
         </Tabs>
       </Paper>
       
-      {/* Expenses Tab */}
+      {/* Budget manager */}
       {tabValue === 0 && (
-        <BudgetManager eventId={eventId} />
+        <BudgetManager eventId={eventId} event={event} />
       )}
       
       {/* Revenue Tab */}

@@ -221,3 +221,72 @@ export const getUpcomingEvents = async (count = 5) => {
     throw error;
   }
 };
+
+/**
+ * Assign an admin to an event
+ * @param {string} eventId - The ID of the event
+ * @param {string} userId - The ID of the user to assign as admin
+ * @returns {Promise<void>}
+ */
+export const assignEventAdmin = async (eventId, userId) => {
+  try {
+    const eventRef = doc(db, EVENTS_COLLECTION, eventId);
+    const eventDoc = await getDoc(eventRef);
+    
+    if (!eventDoc.exists()) {
+      throw new Error('Event not found');
+    }
+    
+    const eventData = eventDoc.data();
+    let admins = eventData.admins || [];
+    
+    // Check if user is already an admin
+    if (admins.includes(userId)) {
+      return; // User is already an admin, no need to update
+    }
+    
+    // Add user to admins array
+    admins.push(userId);
+    
+    // Update event with new admins array
+    await updateDoc(eventRef, { 
+      admins,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error assigning admin: ', error);
+    throw error;
+  }
+};
+
+/**
+ * Remove an admin from an event
+ * @param {string} eventId - The ID of the event
+ * @param {string} userId - The ID of the user to remove as admin
+ * @returns {Promise<void>}
+ */
+export const removeEventAdmin = async (eventId, userId) => {
+  try {
+    const eventRef = doc(db, EVENTS_COLLECTION, eventId);
+    const eventDoc = await getDoc(eventRef);
+    
+    if (!eventDoc.exists()) {
+      throw new Error('Event not found');
+    }
+    
+    const eventData = eventDoc.data();
+    let admins = eventData.admins || [];
+    
+    // Remove user from admins array
+    admins = admins.filter(adminId => adminId !== userId);
+    
+    // Update event with new admins array
+    await updateDoc(eventRef, { 
+      admins,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error removing admin: ', error);
+    throw error;
+  }
+};

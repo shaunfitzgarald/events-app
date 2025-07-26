@@ -177,7 +177,7 @@ function EventsPage() {
                   <CardMedia
                     component="img"
                     height="200"
-                    image={event.image}
+                    image={event.images[0]}
                     alt={event.title}
                   />
                   <CardContent sx={{ flexGrow: 1 }}>
@@ -187,7 +187,7 @@ function EventsPage() {
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                       <CalendarTodayIcon fontSize="small" sx={{ color: 'text.secondary', mr: 1 }} />
                       <Typography variant="body2" color="text.secondary">
-                        {formatDate(event.startDate)}
+                        {formatDate(event.date)} - {event.time}
                       </Typography>
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
