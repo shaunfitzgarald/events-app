@@ -23,7 +23,9 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  InputAdornment
+  InputAdornment,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -66,6 +68,7 @@ function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
+  const [onlyAttendFreeEvents, setOnlyAttendFreeEvents] = useState(false);
   
   // Dialog states
   const [openEmailDialog, setOpenEmailDialog] = useState(false);
@@ -90,6 +93,7 @@ function ProfilePage() {
           setDisplayName(user.displayName || '');
           setEmail(user.email || '');
           setPhoneNumber(user.phoneNumber || '');
+          setOnlyAttendFreeEvents(userProfile?.onlyAttendFreeEvents || false);
         } catch (error) {
           console.error('Error fetching user profile:', error);
           setError('Failed to load user profile');
@@ -116,7 +120,8 @@ function ProfilePage() {
       if (!currentUser) throw new Error('You must be logged in to update your profile');
       
       await updateUserProfile(currentUser.uid, {
-        displayName
+        displayName,
+        onlyAttendFreeEvents
       });
       
       setSuccess('Profile updated successfully');
@@ -364,6 +369,23 @@ function ProfilePage() {
                   onChange={(e) => setDisplayName(e.target.value)}
                   disabled={loading}
                 />
+                
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      checked={onlyAttendFreeEvents}
+                      onChange={(e) => setOnlyAttendFreeEvents(e.target.checked)}
+                      name="onlyAttendFreeEvents"
+                      color="primary"
+                    />
+                  }
+                  label="I only want to attend free events"
+                />
+                {onlyAttendFreeEvents && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 2 }}>
+                    You won't need to provide payment information for free events.
+                  </Typography>
+                )}
                 
                 <Button
                   type="submit"
