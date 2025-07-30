@@ -30,6 +30,12 @@ import ProfilePage from './pages/ProfilePage';
 import AIAssistantPage from './pages/AIAssistantPage';
 import ExplorePage from './pages/ExplorePage';
 import MyEventsPage from './pages/MyEventsPage';
+import PurchaseTicketPage from './pages/PurchaseTicketPage';
+import TicketConfirmationPage from './pages/TicketConfirmationPage';
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import TermsOfServicePage from './pages/TermsOfServicePage';
+import ContactUsPage from './pages/ContactUsPage';
+import HelpCenterPage from './pages/HelpCenterPage';
 
 // Placeholder pages (to be implemented later)
 const DashboardPage = () => <div>Dashboard Page - Coming Soon</div>;
@@ -50,6 +56,10 @@ function App() {
               <Route path="/explore" element={<ExplorePage />} />
               <Route path="/integrations" element={<FutureIntegrationsPage />} />
               <Route path="/ai-assistant" element={<AIAssistantPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
+              <Route path="/terms" element={<TermsOfServicePage />} />
+              <Route path="/contact" element={<ContactUsPage />} />
+              <Route path="/help" element={<HelpCenterPage />} />
               
               {/* Auth routes */}
               <Route path="/login" element={<LoginPage />} />
@@ -94,6 +104,16 @@ function App() {
               <Route path="/dashboard" element={
                 <ProtectedRoute>
                   <DashboardPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/events/:eventId/purchase-ticket" element={
+                <ProtectedRoute>
+                  <PurchaseTicketPage />
+                </ProtectedRoute>
+              } />
+              <Route path="/tickets/:ticketId/confirmation" element={
+                <ProtectedRoute>
+                  <TicketConfirmationPage />
                 </ProtectedRoute>
               } />
             </Routes>

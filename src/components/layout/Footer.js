@@ -56,6 +56,9 @@ function Footer() {
             <Link href="/explore" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Explore
             </Link>
+            <Link href="/ai-assistant" color="text.secondary" display="block" sx={{ mb: 1 }}>
+              AI Assistant
+            </Link>
             <Link href="/create-event" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Create Event
             </Link>
@@ -63,7 +66,7 @@ function Footer() {
           
           <Grid item xs={12} sm={4}>
             <Typography variant="h6" color="text.primary" gutterBottom>
-              Support
+              Support & Legal
             </Typography>
             <Link href="/help" color="text.secondary" display="block" sx={{ mb: 1 }}>
               Help Center
