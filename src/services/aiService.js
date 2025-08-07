@@ -1,6 +1,7 @@
 import { db, app } from './firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { getAI, getGenerativeModel, GoogleAIBackend } from 'firebase/ai';
+import { getUserEvents, getEventById, updateEvent } from './eventService';
 import dayjs from 'dayjs';
 
 /**
@@ -51,6 +52,11 @@ export const saveAIGeneratedEvent = async (eventData, userId) => {
     console.log('Saving AI generated event with data:', eventData);
     console.log('User ID:', userId);
     
+    // Debug logging for schedule data
+    console.log('Original eventData.schedule:', eventData.schedule);
+    console.log('Schedule is array?', Array.isArray(eventData.schedule));
+    console.log('Schedule length:', eventData.schedule ? eventData.schedule.length : 'undefined');
+    
     // Clean and prepare the event data for Firestore
     const cleanedEventData = {
       ...eventData,
@@ -73,6 +79,8 @@ export const saveAIGeneratedEvent = async (eventData, userId) => {
       // Ensure attendees is an array
       attendees: Array.isArray(eventData.attendees) ? eventData.attendees : []
     };
+    
+    console.log('Cleaned schedule data:', cleanedEventData.schedule);
     
     // Add to Firestore
     const eventRef = await addDoc(collection(db, 'events'), {
@@ -683,7 +691,747 @@ Would you like to create this event? You can edit any details before finalizing.
   };
 };
 
+// ============================================================================
+// PHASE 1: EVENT RETRIEVAL & CONTEXT FOR AI EDITING
+// ============================================================================
+
+/**
+ * Get events by user for AI context
+ * @param {string} userId - The user's ID
+ * @returns {Promise<Array>} - Array of user's events
+ */
+export const getEventsByUser = async (userId) => {
+  try {
+    console.log('Fetching events for user:', userId);
+    const events = await getUserEvents(userId);
+    console.log(`Found ${events.length} events for user`);
+    return events;
+  } catch (error) {
+    console.error('Error fetching user events for AI:', error);
+    throw new Error(`Failed to fetch user events: ${error.message}`);
+  }
+};
+
+/**
+ * Find a specific event by natural language query
+ * @param {string} userId - The user's ID
+ * @param {string} query - Natural language query to find event
+ * @returns {Promise<Object|null>} - The matching event or null
+ */
+export const findEventByQuery = async (userId, query) => {
+  try {
+    console.log('Finding event by query:', query);
+    
+    // Get all user events
+    const userEvents = await getEventsByUser(userId);
+    
+    if (userEvents.length === 0) {
+      console.log('No events found for user');
+      return null;
+    }
+    
+    // Prepare simplified event data for AI matching
+    const eventsForMatching = userEvents.map(event => ({
+      id: event.id,
+      title: event.title,
+      date: event.date,
+      location: event.location,
+      category: event.category,
+      description: event.description?.substring(0, 100) // Truncate for efficiency
+    }));
+    
+    // Initialize the Gemini model
+    const ai = getAI(app, { backend: new GoogleAIBackend() });
+    const model = getGenerativeModel(ai, { model: "gemini-2.5-flash" });
+    
+    // Create prompt to find matching event
+    const matchPrompt = `Find the best matching event for the user's query: "${query}"
+
+Available events:
+${JSON.stringify(eventsForMatching, null, 2)}
+
+Return ONLY the event ID that best matches the query. If no good match exists, return "NONE".
+Consider title, date, location, category, and description when matching.
+
+Response format: Just the event ID or "NONE"`;
+    
+    console.log('Sending event matching prompt to Gemini');
+    const result = await model.generateContent(matchPrompt);
+    const response = result.response.text().trim();
+    
+    console.log('Gemini event matching response:', response);
+    
+    if (response === 'NONE') {
+      console.log('No matching event found');
+      return null;
+    }
+    
+    // Find the event by ID
+    const matchedEvent = userEvents.find(event => event.id === response);
+    
+    if (matchedEvent) {
+      console.log('Found matching event:', matchedEvent.title);
+      return matchedEvent;
+    } else {
+      console.log('Event ID returned by AI not found in user events');
+      return null;
+    }
+    
+  } catch (error) {
+    console.error('Error finding event by query:', error);
+    throw new Error(`Failed to find event: ${error.message}`);
+  }
+};
+
+/**
+ * Prepare event data for AI analysis and editing
+ * @param {Object} event - The event to analyze
+ * @returns {Object} - Structured event data for AI
+ */
+export const analyzeEventForEditing = (event) => {
+  try {
+    console.log('Analyzing event for editing:', event.title);
+    
+    // Create a structured representation of the event for AI
+    const analyzedEvent = {
+      id: event.id,
+      title: event.title,
+      date: event.date,
+      time: event.time,
+      endTime: event.endTime,
+      location: event.location,
+      address: event.address,
+      category: event.category,
+      description: event.description,
+      organizer: event.organizer,
+      expectedGuests: event.expectedGuests,
+      maxAttendees: event.maxAttendees,
+      price: event.price,
+      budget: event.budget,
+      schedule: event.schedule || [],
+      attendees: event.attendees || [],
+      notes: event.notes,
+      // Add metadata for AI context
+      metadata: {
+        createdAt: event.createdAt,
+        updatedAt: event.updatedAt,
+        aiGenerated: event.aiGenerated || false,
+        hasSchedule: event.schedule && event.schedule.length > 0,
+        hasAttendees: event.attendees && event.attendees.length > 0,
+        isUpcoming: dayjs(event.date).isAfter(dayjs()),
+        daysUntilEvent: dayjs(event.date).diff(dayjs(), 'day')
+      }
+    };
+    
+    console.log('Event analysis complete');
+    return analyzedEvent;
+    
+  } catch (error) {
+    console.error('Error analyzing event for editing:', error);
+    throw new Error(`Failed to analyze event: ${error.message}`);
+  }
+};
+
+/**
+ * Get event context summary for AI prompts
+ * @param {Object} event - The event to summarize
+ * @returns {string} - Human-readable event summary
+ */
+export const getEventContextSummary = (event) => {
+  const analyzed = analyzeEventForEditing(event);
+  
+  let summary = `Event: "${analyzed.title}"\n`;
+  summary += `Date: ${analyzed.date}\n`;
+  summary += `Time: ${analyzed.time}${analyzed.endTime ? ` - ${analyzed.endTime}` : ''}\n`;
+  summary += `Location: ${analyzed.location}\n`;
+  summary += `Category: ${analyzed.category}\n`;
+  summary += `Description: ${analyzed.description}\n`;
+  
+  if (analyzed.expectedGuests) {
+    summary += `Expected Guests: ${analyzed.expectedGuests}\n`;
+  }
+  
+  if (analyzed.schedule && analyzed.schedule.length > 0) {
+    summary += `\nSchedule:\n`;
+    analyzed.schedule.forEach(day => {
+      summary += `${day.day}:\n`;
+      if (day.items) {
+        day.items.forEach(item => {
+          summary += `- ${item.time}: ${item.title}\n`;
+        });
+      }
+    });
+  }
+  
+  return summary;
+};
+
+// ============================================================================
+// PHASE 2: EDIT INTENT RECOGNITION
+// ============================================================================
+
+/**
+ * Extract edit intent from user message
+ * @param {string} message - User's edit request
+ * @param {Object} currentEvent - The current event data
+ * @returns {Promise<Object>} - Parsed edit intent
+ */
+export const extractEditIntent = async (message, currentEvent) => {
+  try {
+    console.log('Extracting edit intent from message:', message);
+    
+    // Initialize the Gemini model
+    const ai = getAI(app, { backend: new GoogleAIBackend() });
+    const model = getGenerativeModel(ai, { model: "gemini-2.5-flash" });
+    
+    // Create comprehensive prompt for edit intent recognition
+    const intentPrompt = `Analyze this edit request for an event and extract the specific changes requested.
+
+Current Event:
+${getEventContextSummary(currentEvent)}
+
+User's Edit Request: "${message}"
+
+Analyze what the user wants to change and respond with a JSON object in this exact format:
+{
+  "editType": "single|multiple",
+  "confidence": 0.0-1.0,
+  "changes": [
+    {
+      "field": "title|date|time|endTime|location|address|description|category|expectedGuests|maxAttendees|price|budget|schedule|organizer|notes",
+      "action": "update|add|remove",
+      "currentValue": "current value or null",
+      "newValue": "proposed new value",
+      "reasoning": "why this change was identified"
+    }
+  ],
+  "requiresClarification": true|false,
+  "clarificationNeeded": "what needs clarification or null",
+  "summary": "brief summary of all requested changes"
+}
+
+Guidelines:
+- For schedule changes, use field "schedule" and include the full updated schedule in newValue
+- For time changes, distinguish between "time" (start time) and "endTime"
+- If the request is ambiguous, set requiresClarification to true
+- Be specific about what field is being changed
+- Include reasoning for each identified change
+
+Respond ONLY with the JSON object, nothing else.`;
+    
+    console.log('Sending edit intent prompt to Gemini');
+    const result = await model.generateContent(intentPrompt);
+    const response = result.response.text().trim();
+    
+    console.log('Gemini edit intent response:', response);
+    
+    // Parse the JSON response
+    let editIntent;
+    try {
+      editIntent = JSON.parse(response);
+      console.log('Successfully parsed edit intent');
+    } catch (error) {
+      console.error('Error parsing edit intent JSON:', error);
+      
+      // Try to extract JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          editIntent = JSON.parse(jsonMatch[0]);
+          console.log('Successfully parsed extracted JSON');
+        } catch (innerError) {
+          console.error('Error parsing extracted JSON:', innerError);
+          throw new Error('Failed to parse AI edit intent response');
+        }
+      } else {
+        throw new Error('No valid JSON found in AI response');
+      }
+    }
+    
+    // Validate the edit intent structure
+    if (!editIntent.changes || !Array.isArray(editIntent.changes)) {
+      throw new Error('Invalid edit intent structure: missing changes array');
+    }
+    
+    console.log('Edit intent extracted successfully:', editIntent.summary);
+    return editIntent;
+    
+  } catch (error) {
+    console.error('Error extracting edit intent:', error);
+    throw new Error(`Failed to extract edit intent: ${error.message}`);
+  }
+};
+
+/**
+ * Classify the type of edit request
+ * @param {Object} editIntent - The extracted edit intent
+ * @returns {Object} - Classification details
+ */
+export const classifyEditRequest = (editIntent) => {
+  try {
+    const { changes } = editIntent;
+    
+    // Categorize changes by type
+    const categories = {
+      basic: ['title', 'description', 'category', 'notes'],
+      timing: ['date', 'time', 'endTime'],
+      location: ['location', 'address'],
+      capacity: ['expectedGuests', 'maxAttendees'],
+      financial: ['price', 'budget'],
+      schedule: ['schedule'],
+      organizer: ['organizer']
+    };
+    
+    const classification = {
+      complexity: 'simple', // simple, moderate, complex
+      categories: [],
+      riskLevel: 'low', // low, medium, high
+      requiresValidation: false,
+      estimatedImpact: 'minimal' // minimal, moderate, significant
+    };
+    
+    // Analyze each change
+    changes.forEach(change => {
+      // Determine category
+      for (const [category, fields] of Object.entries(categories)) {
+        if (fields.includes(change.field)) {
+          if (!classification.categories.includes(category)) {
+            classification.categories.push(category);
+          }
+          break;
+        }
+      }
+      
+      // Assess risk and complexity
+      if (['date', 'time', 'location'].includes(change.field)) {
+        classification.riskLevel = 'medium';
+        classification.requiresValidation = true;
+        classification.estimatedImpact = 'moderate';
+      }
+      
+      if (change.field === 'schedule') {
+        classification.complexity = 'moderate';
+        classification.estimatedImpact = 'moderate';
+      }
+      
+      if (['price', 'maxAttendees'].includes(change.field)) {
+        classification.riskLevel = 'high';
+        classification.requiresValidation = true;
+        classification.estimatedImpact = 'significant';
+      }
+    });
+    
+    // Adjust complexity based on number of changes
+    if (changes.length > 3) {
+      classification.complexity = 'complex';
+    } else if (changes.length > 1) {
+      classification.complexity = 'moderate';
+    }
+    
+    console.log('Edit request classified:', classification);
+    return classification;
+    
+  } catch (error) {
+    console.error('Error classifying edit request:', error);
+    throw new Error(`Failed to classify edit request: ${error.message}`);
+  }
+};
+
+/**
+ * Handle ambiguous edit requests with clarification
+ * @param {string} message - Original user message
+ * @param {Object} currentEvent - Current event data
+ * @param {Object} editIntent - Extracted edit intent
+ * @returns {Object} - Clarification response
+ */
+export const handleAmbiguousRequest = (message, currentEvent, editIntent) => {
+  try {
+    console.log('Handling ambiguous edit request');
+    
+    const clarificationResponse = {
+      needsClarification: true,
+      originalMessage: message,
+      possibleInterpretations: [],
+      suggestedQuestions: [],
+      aiMessage: ''
+    };
+    
+    // Generate clarification questions based on the ambiguity
+    if (editIntent.requiresClarification) {
+      clarificationResponse.suggestedQuestions.push(editIntent.clarificationNeeded);
+    }
+    
+    // Add specific clarification questions based on detected issues
+    if (editIntent.changes.some(c => c.field === 'time' && !c.newValue)) {
+      clarificationResponse.suggestedQuestions.push('What time would you like to change it to?');
+    }
+    
+    if (editIntent.changes.some(c => c.field === 'date' && !c.newValue)) {
+      clarificationResponse.suggestedQuestions.push('What date would you like to change it to?');
+    }
+    
+    if (editIntent.changes.some(c => c.field === 'location' && !c.newValue)) {
+      clarificationResponse.suggestedQuestions.push('What is the new location?');
+    }
+    
+    // Generate possible interpretations
+    editIntent.changes.forEach(change => {
+      if (change.newValue) {
+        clarificationResponse.possibleInterpretations.push({
+          field: change.field,
+          interpretation: `Change ${change.field} to "${change.newValue}"`,
+          confidence: editIntent.confidence
+        });
+      }
+    });
+    
+    // Create AI message
+    clarificationResponse.aiMessage = `I understand you want to edit your "${currentEvent.title}" event, but I need some clarification:\n\n`;
+    
+    if (clarificationResponse.suggestedQuestions.length > 0) {
+      clarificationResponse.aiMessage += clarificationResponse.suggestedQuestions.join('\n');
+    }
+    
+    if (clarificationResponse.possibleInterpretations.length > 0) {
+      clarificationResponse.aiMessage += '\n\nIs this what you meant?\n';
+      clarificationResponse.possibleInterpretations.forEach(interp => {
+        clarificationResponse.aiMessage += `- ${interp.interpretation}\n`;
+      });
+    }
+    
+    console.log('Clarification response generated');
+    return clarificationResponse;
+    
+  } catch (error) {
+    console.error('Error handling ambiguous request:', error);
+    throw new Error(`Failed to handle ambiguous request: ${error.message}`);
+  }
+};
+
+// ============================================================================
+// PHASE 3: CHANGE PROPOSAL SYSTEM
+// ============================================================================
+
+/**
+ * Generate specific change proposals from edit intent
+ * @param {Object} editIntent - The extracted edit intent
+ * @param {Object} currentEvent - The current event data
+ * @returns {Promise<Object>} - Generated change proposal
+ */
+export const generateEditProposal = async (editIntent, currentEvent) => {
+  try {
+    console.log('Generating edit proposal for:', editIntent.summary);
+    
+    // Initialize the Gemini model
+    const ai = getAI(app, { backend: new GoogleAIBackend() });
+    const model = getGenerativeModel(ai, { model: "gemini-2.5-flash" });
+    
+    // Classify the edit request for context
+    const classification = classifyEditRequest(editIntent);
+    
+    // Create proposal generation prompt
+    const proposalPrompt = `Generate a detailed change proposal for an event edit request.
+
+Current Event:
+${getEventContextSummary(currentEvent)}
+
+Requested Changes:
+${JSON.stringify(editIntent.changes, null, 2)}
+
+Edit Classification:
+- Complexity: ${classification.complexity}
+- Risk Level: ${classification.riskLevel}
+- Categories: ${classification.categories.join(', ')}
+- Estimated Impact: ${classification.estimatedImpact}
+
+Generate a comprehensive change proposal in this JSON format:
+{
+  "proposalId": "unique-proposal-id",
+  "summary": "brief summary of all changes",
+  "changes": [
+    {
+      "field": "field name",
+      "action": "update|add|remove",
+      "currentValue": "current value",
+      "proposedValue": "new proposed value",
+      "reasoning": "why this change makes sense",
+      "impact": "what this change affects",
+      "validation": {
+        "isValid": true|false,
+        "warnings": ["any warnings"],
+        "suggestions": ["any suggestions"]
+      }
+    }
+  ],
+  "overallImpact": {
+    "attendeeNotification": true|false,
+    "rescheduleRequired": true|false,
+    "venueChange": true|false,
+    "costImplication": true|false,
+    "urgency": "low|medium|high"
+  },
+  "recommendations": ["list of recommendations"],
+  "risks": ["list of potential risks"],
+  "nextSteps": ["suggested next steps"]
+}
+
+Guidelines:
+- Validate each proposed change for reasonableness
+- Consider impact on attendees and event logistics
+- Provide helpful warnings for risky changes
+- Include practical recommendations
+- Generate a unique proposal ID
+
+Respond ONLY with the JSON object, nothing else.`;
+    
+    console.log('Sending proposal generation prompt to Gemini');
+    const result = await model.generateContent(proposalPrompt);
+    const response = result.response.text().trim();
+    
+    console.log('Gemini proposal response:', response);
+    
+    // Parse the JSON response
+    let proposal;
+    try {
+      proposal = JSON.parse(response);
+      console.log('Successfully parsed change proposal');
+    } catch (error) {
+      console.error('Error parsing proposal JSON:', error);
+      
+      // Try to extract JSON from response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          proposal = JSON.parse(jsonMatch[0]);
+          console.log('Successfully parsed extracted proposal JSON');
+        } catch (innerError) {
+          console.error('Error parsing extracted proposal JSON:', innerError);
+          throw new Error('Failed to parse AI proposal response');
+        }
+      } else {
+        throw new Error('No valid JSON found in AI proposal response');
+      }
+    }
+    
+    // Add metadata to proposal
+    proposal.metadata = {
+      generatedAt: new Date().toISOString(),
+      originalIntent: editIntent,
+      classification: classification,
+      eventId: currentEvent.id,
+      eventTitle: currentEvent.title
+    };
+    
+    console.log('Change proposal generated successfully:', proposal.proposalId);
+    return proposal;
+    
+  } catch (error) {
+    console.error('Error generating edit proposal:', error);
+    throw new Error(`Failed to generate edit proposal: ${error.message}`);
+  }
+};
+
+/**
+ * Format edit proposal for user display
+ * @param {Object} proposal - The generated proposal
+ * @param {Object} currentEvent - The current event data
+ * @returns {string} - Formatted message for display
+ */
+export const formatEditProposal = (proposal, currentEvent) => {
+  try {
+    console.log('Formatting edit proposal for display');
+    
+    let message = `I've analyzed your request to edit "${currentEvent.title}" and prepared the following changes:\n\n`;
+    
+    // Add summary
+    message += `**Summary:** ${proposal.summary}\n\n`;
+    
+    // Add detailed changes
+    message += `**Proposed Changes:**\n`;
+    proposal.changes.forEach((change, index) => {
+      message += `${index + 1}. **${change.field.charAt(0).toUpperCase() + change.field.slice(1)}**\n`;
+      message += `   Current: ${change.currentValue || 'Not set'}\n`;
+      message += `   New: ${change.proposedValue}\n`;
+      message += `   Reason: ${change.reasoning}\n`;
+      
+      if (change.validation && change.validation.warnings.length > 0) {
+        message += `   ⚠️ Warnings: ${change.validation.warnings.join(', ')}\n`;
+      }
+      
+      message += `\n`;
+    });
+    
+    // Add overall impact
+    if (proposal.overallImpact) {
+      message += `**Impact Assessment:**\n`;
+      if (proposal.overallImpact.attendeeNotification) {
+        message += `• Attendees should be notified of these changes\n`;
+      }
+      if (proposal.overallImpact.rescheduleRequired) {
+        message += `• This may require rescheduling coordination\n`;
+      }
+      if (proposal.overallImpact.venueChange) {
+        message += `• Venue change may affect logistics\n`;
+      }
+      if (proposal.overallImpact.costImplication) {
+        message += `• These changes may affect event costs\n`;
+      }
+      message += `• Urgency level: ${proposal.overallImpact.urgency}\n\n`;
+    }
+    
+    // Add recommendations
+    if (proposal.recommendations && proposal.recommendations.length > 0) {
+      message += `**Recommendations:**\n`;
+      proposal.recommendations.forEach(rec => {
+        message += `• ${rec}\n`;
+      });
+      message += `\n`;
+    }
+    
+    // Add risks
+    if (proposal.risks && proposal.risks.length > 0) {
+      message += `**Potential Risks:**\n`;
+      proposal.risks.forEach(risk => {
+        message += `• ${risk}\n`;
+      });
+      message += `\n`;
+    }
+    
+    message += `Would you like me to apply these changes to your event?`;
+    
+    console.log('Edit proposal formatted for display');
+    return message;
+    
+  } catch (error) {
+    console.error('Error formatting edit proposal:', error);
+    throw new Error(`Failed to format edit proposal: ${error.message}`);
+  }
+};
+
+/**
+ * Apply approved changes to an event
+ * @param {string} eventId - The event ID to update
+ * @param {Object} proposal - The approved proposal
+ * @param {string} userId - The user ID applying changes
+ * @returns {Promise<Object>} - Result of the update
+ */
+export const applyEventChanges = async (eventId, proposal, userId) => {
+  try {
+    console.log('Applying changes to event:', eventId);
+    
+    // Get current event data
+    const currentEvent = await getEventById(eventId);
+    
+    if (!currentEvent) {
+      throw new Error('Event not found');
+    }
+    
+    // Verify user has permission to edit this event
+    if (currentEvent.createdBy !== userId) {
+      throw new Error('User does not have permission to edit this event');
+    }
+    
+    // Build update object from proposal changes
+    const updateData = {
+      updatedAt: serverTimestamp(),
+      lastEditedBy: userId,
+      aiEditHistory: currentEvent.aiEditHistory || []
+    };
+    
+    // Apply each change from the proposal
+    proposal.changes.forEach(change => {
+      if (change.action === 'update' || change.action === 'add') {
+        updateData[change.field] = change.proposedValue;
+      } else if (change.action === 'remove') {
+        updateData[change.field] = null;
+      }
+    });
+    
+    // Add this edit to the history
+    updateData.aiEditHistory.push({
+      proposalId: proposal.proposalId,
+      timestamp: new Date().toISOString(),
+      userId: userId,
+      changes: proposal.changes,
+      summary: proposal.summary
+    });
+    
+    // Update the event in Firestore
+    await updateEvent(eventId, updateData);
+    
+    console.log('Event changes applied successfully');
+    
+    return {
+      success: true,
+      eventId: eventId,
+      appliedChanges: proposal.changes,
+      summary: proposal.summary,
+      message: `Successfully updated "${currentEvent.title}" with ${proposal.changes.length} change(s).`
+    };
+    
+  } catch (error) {
+    console.error('Error applying event changes:', error);
+    throw new Error(`Failed to apply changes: ${error.message}`);
+  }
+};
+
+/**
+ * Generate before/after preview of changes
+ * @param {Object} currentEvent - Current event data
+ * @param {Object} proposal - The proposed changes
+ * @returns {Object} - Before and after comparison
+ */
+export const generateChangePreview = (currentEvent, proposal) => {
+  try {
+    console.log('Generating change preview');
+    
+    const preview = {
+      before: {},
+      after: {},
+      changedFields: []
+    };
+    
+    // Extract changed fields from proposal
+    proposal.changes.forEach(change => {
+      const field = change.field;
+      preview.before[field] = change.currentValue;
+      preview.after[field] = change.proposedValue;
+      preview.changedFields.push(field);
+    });
+    
+    // Add unchanged important fields for context
+    const contextFields = ['title', 'date', 'time', 'location', 'description'];
+    contextFields.forEach(field => {
+      if (!preview.changedFields.includes(field)) {
+        preview.before[field] = currentEvent[field];
+        preview.after[field] = currentEvent[field];
+      }
+    });
+    
+    console.log('Change preview generated');
+    return preview;
+    
+  } catch (error) {
+    console.error('Error generating change preview:', error);
+    throw new Error(`Failed to generate change preview: ${error.message}`);
+  }
+};
+
 export default {
   processMessage,
-  saveAIGeneratedEvent
+  saveAIGeneratedEvent,
+  // Phase 1: Event retrieval & context
+  getEventsByUser,
+  findEventByQuery,
+  analyzeEventForEditing,
+  getEventContextSummary,
+  // Phase 2: Edit intent recognition
+  extractEditIntent,
+  classifyEditRequest,
+  handleAmbiguousRequest,
+  // Phase 3: Change proposal system
+  generateEditProposal,
+  formatEditProposal,
+  applyEventChanges,
+  generateChangePreview
 };

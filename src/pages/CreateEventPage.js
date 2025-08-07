@@ -27,7 +27,11 @@ import {
   List,
   ImageList,
   ImageListItem,
-  ImageListItemBar
+  ImageListItemBar,
+  Card,
+  CardContent,
+  CardMedia,
+  CircularProgress
 } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
@@ -41,6 +45,9 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { uploadMultipleImages } from '../services/storageService';
+import { addEvent } from '../services/eventService';
+import { useAuth } from '../contexts/AuthContext';
+import DragDropImageUpload from '../components/DragDropImageUpload';
 
 // Mock categories
 const categories = [
@@ -130,7 +137,12 @@ const DraggableImageItem = ({ imageUrl, index, moveImage, removeImage }) => {
 function CreateEventPage() {
   const theme = useTheme();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+  
+  // Submission state
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   
   // State for stepper
   const [activeStep, setActiveStep] = useState(0);
@@ -399,14 +411,70 @@ function CreateEventPage() {
   };
   
   // Handle form submission
-  const handleSubmit = () => {
-    // In a real app, this would send data to Firebase
-    console.log('Event data submitted:', eventData);
+  const handleSubmit = async () => {
+    if (!currentUser) {
+      setSubmitError('You must be logged in to create an event');
+      return;
+    }
     
-    // Navigate to the events page after submission
-    setTimeout(() => {
-      navigate('/events');
-    }, 1500);
+    setIsSubmitting(true);
+    setSubmitError('');
+    
+    try {
+      let imageUrls = [];
+      
+      // Upload images if any are selected
+      if (eventData.images && eventData.images.length > 0) {
+        console.log('Uploading images...', eventData.images);
+        imageUrls = await uploadMultipleImages(
+          eventData.images,
+          'events/images',
+          (progress) => {
+            console.log('Upload progress:', progress);
+          }
+        );
+        console.log('Images uploaded successfully:', imageUrls);
+      }
+      
+      // Prepare event data for Firestore
+      const eventToSave = {
+        title: eventData.title,
+        description: eventData.description,
+        category: eventData.category,
+        location: eventData.location,
+        address: eventData.address,
+        startDate: eventData.startDate ? eventData.startDate.toDate() : null,
+        endDate: eventData.endDate ? eventData.endDate.toDate() : null,
+        startTime: eventData.startTime ? eventData.startTime.format('HH:mm') : null,
+        endTime: eventData.endTime ? eventData.endTime.format('HH:mm') : null,
+        images: imageUrls,
+        image: imageUrls.length > 0 ? imageUrls[0] : null, // For backward compatibility
+        isPublic: eventData.isPublic,
+        isLimited: eventData.isLimited,
+        maxAttendees: eventData.isLimited ? parseInt(eventData.maxAttendees) || null : null,
+        price: eventData.price ? parseFloat(eventData.price) || 0 : 0,
+        schedule: eventData.schedule || [],
+        createdBy: currentUser.uid,
+        attendees: [],
+        admins: []
+      };
+      
+      console.log('Saving event to Firestore:', eventToSave);
+      
+      // Save event to Firestore
+      const eventId = await addEvent(eventToSave);
+      
+      console.log('Event created successfully with ID:', eventId);
+      
+      // Navigate to the event detail page
+      navigate(`/events/${eventId}`);
+      
+    } catch (error) {
+      console.error('Error creating event:', error);
+      setSubmitError(`Failed to create event: ${error.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   
   // Render form steps
@@ -451,21 +519,21 @@ function CreateEventPage() {
                 Event Images
               </Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <Button
-                  variant="outlined"
-                  component="label"
-                  startIcon={<AddPhotoAlternateIcon />}
-                  sx={{ height: '56px' }}
-                >
-                  {eventData.images.length > 0 ? 'Add More Images' : 'Upload Event Images'}
-                  <input
-                    type="file"
-                    hidden
-                    accept="image/*"
-                    multiple
-                    onChange={handleImageChange}
-                  />
-                </Button>
+                <DragDropImageUpload
+                  onFilesSelected={(files) => {
+                    // Convert FileList to event-like object for handleImageChange
+                    const event = {
+                      target: {
+                        files: files
+                      }
+                    };
+                    handleImageChange(event);
+                  }}
+                  multiple={true}
+                  maxFiles={10}
+                  existingImagesCount={eventData.images.length}
+                  disabled={isSubmitting}
+                />
                 
                 {/* Display uploaded images with drag-and-drop reordering */}
                 {eventData.imagePreviews.length > 0 && (
@@ -474,19 +542,17 @@ function CreateEventPage() {
                       Drag to reorder images. The first image will be used as the main event image.
                     </Typography>
                     
-                    <DndProvider backend={HTML5Backend}>
-                      <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
-                        {eventData.imagePreviews.map((preview, index) => (
-                          <DraggableImageItem
-                            key={index}
-                            index={index}
-                            imageUrl={preview}
-                            moveImage={moveImage}
-                            removeImage={handleRemoveImage}
-                          />
-                        ))}
-                      </Box>
-                    </DndProvider>
+                    <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
+                      {eventData.imagePreviews.map((preview, index) => (
+                        <DraggableImageItem
+                          key={index}
+                          index={index}
+                          imageUrl={preview}
+                          moveImage={moveImage}
+                          removeImage={handleRemoveImage}
+                        />
+                      ))}
+                    </Box>
                     
                     {/* Also show as grid for visual reference */}
                     <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
@@ -1045,9 +1111,16 @@ function CreateEventPage() {
           <>
             {renderStepContent(activeStep)}
             
+            {/* Error display */}
+            {submitError && (
+              <Alert severity="error" sx={{ mt: 2 }}>
+                {submitError}
+              </Alert>
+            )}
+            
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 4 }}>
               <Button
-                disabled={activeStep === 0}
+                disabled={activeStep === 0 || isSubmitting}
                 onClick={handleBack}
               >
                 Back
@@ -1055,9 +1128,16 @@ function CreateEventPage() {
               <Button
                 variant="contained"
                 color="primary"
+                disabled={isSubmitting}
                 onClick={activeStep === steps.length - 1 ? handleSubmit : handleNext}
+                startIcon={isSubmitting && activeStep === steps.length - 1 ? <CircularProgress size={20} /> : null}
               >
-                {activeStep === steps.length - 1 ? 'Create Event' : 'Next'}
+                {isSubmitting && activeStep === steps.length - 1 
+                  ? 'Creating Event...' 
+                  : activeStep === steps.length - 1 
+                    ? 'Create Event' 
+                    : 'Next'
+                }
               </Button>
             </Box>
           </>
