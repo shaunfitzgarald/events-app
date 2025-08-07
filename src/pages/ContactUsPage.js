@@ -89,7 +89,7 @@ const ContactUsPage = () => {
                       Email
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      support@eventsapp.com
+                      support@shaunfitzgarald.com
                     </Typography>
                   </Box>
                 </Box>
@@ -101,7 +101,7 @@ const ContactUsPage = () => {
                       Phone
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      +1 (555) 123-4567
+                      +1 (858) 769-9688
                     </Typography>
                   </Box>
                 </Box>
@@ -113,8 +113,8 @@ const ContactUsPage = () => {
                       Address
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      123 Event Street<br />
-                      San Francisco, CA 94105<br />
+                      Hillcrest<br />
+                      San Diego, CA 92103<br />
                       United States
                     </Typography>
                   </Box>

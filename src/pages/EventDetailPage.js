@@ -60,6 +60,7 @@ import { useAuth } from '../contexts/AuthContext';
 // Import components
 import EventNavigation from '../components/events/EventNavigation';
 import EventAdminManagement from '../components/events/EventAdminManagement';
+import EditWithAIButton from '../components/ai/EditWithAIButton';
 
 // Format date using dayjs
 const formatDate = (date) => {
@@ -176,6 +177,11 @@ function EventDetailPage() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [deleteSuccess, setDeleteSuccess] = useState(false);
+  
+  // Snackbar state for AI updates
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('success');
 
   // Handle tab change
   const handleTabChange = (event, newValue) => {
@@ -225,6 +231,19 @@ function EventDetailPage() {
       setDeleteError('Failed to delete event. Please try again.');
       setDeleting(false);
     }
+  };
+
+  // Handle AI event update
+  const handleAIEventUpdated = (result) => {
+    console.log('Event updated by AI:', result);
+    
+    // Show success message
+    setSnackbarMessage(`Event updated successfully: ${result.summary}`);
+    setSnackbarSeverity('success');
+    setSnackbarOpen(true);
+    
+    // Refresh the event data
+    fetchEventData();
   };
 
   // Open RSVP dialog
@@ -422,7 +441,15 @@ function EventDetailPage() {
                 <Typography variant="h5" component="h2">
                   About This Event
                 </Typography>
-                <Box>
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                  {canEdit && (
+                    <EditWithAIButton 
+                      event={event}
+                      onEventUpdated={handleAIEventUpdated}
+                      variant="outlined"
+                      size="small"
+                    />
+                  )}
                   {canEdit && (
                     <IconButton onClick={handleEditEvent} color="primary" title="Edit Event">
                       <EditIcon />
@@ -467,10 +494,10 @@ function EventDetailPage() {
                             {day.day}
                           </Typography>
                           <List dense>
-                            {day.events && Array.isArray(day.events) ? day.events.map((item, idx) => (
+                            {day.items && Array.isArray(day.items) ? day.items.map((item, idx) => (
                               <ListItem key={idx}>
                                 <ListItemText
-                                  primary={item.activity}
+                                  primary={item.title}
                                   secondary={item.time}
                                 />
                               </ListItem>

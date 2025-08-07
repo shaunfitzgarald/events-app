@@ -44,6 +44,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { processMessage, saveAIGeneratedEvent } from '../services/aiService';
 import { uploadImage, uploadMultipleImages } from '../services/storageService';
+import DragDropImageUpload from '../components/DragDropImageUpload';
 import dayjs from 'dayjs';
 
 // Draggable Image Item Component
@@ -748,59 +749,70 @@ function AIAssistantPage() {
                             Drag to reorder images. The first image will be used as the main event image.
                           </Typography>
                           
-                          <DndProvider backend={HTML5Backend}>
-                            <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
-                              {previewUrls.length > 0 ? (
-                                // For selected images (before upload)
-                                previewUrls.map((url, index) => (
-                                  <DraggableImageItem
-                                    key={index}
-                                    index={index}
-                                    imageUrl={url}
-                                    moveImage={moveSelectedImage}
-                                    removeImage={handleRemoveSelectedImage}
-                                  />
-                                ))
-                              ) : (
-                                // For uploaded images
-                                (eventData.images || []).map((url, index) => (
-                                  <DraggableImageItem
-                                    key={index}
-                                    index={index}
-                                    imageUrl={url}
-                                    moveImage={moveUploadedImage}
-                                    removeImage={handleRemoveUploadedImage}
-                                  />
-                                ))
-                              )}
-                            </Box>
-                          </DndProvider>
+                          <Box sx={{ maxHeight: 300, overflow: 'auto' }}>
+                            {previewUrls.length > 0 ? (
+                              // For selected images (before upload)
+                              previewUrls.map((url, index) => (
+                                <DraggableImageItem
+                                  key={index}
+                                  index={index}
+                                  imageUrl={url}
+                                  moveImage={moveSelectedImage}
+                                  removeImage={handleRemoveSelectedImage}
+                                />
+                              ))
+                            ) : (
+                              // For uploaded images
+                              (eventData.images || []).map((url, index) => (
+                                <DraggableImageItem
+                                  key={index}
+                                  index={index}
+                                  imageUrl={url}
+                                  moveImage={moveUploadedImage}
+                                  removeImage={handleRemoveUploadedImage}
+                                />
+                              ))
+                            )}
+                          </Box>
                         </Box>
                       </Box>
                     ) : (
-                      <Button
-                        variant="outlined"
-                        startIcon={<AddPhotoAlternateIcon />}
-                        onClick={triggerFileInput}
-                        sx={{ mb: 2 }}
+                      <DragDropImageUpload
+                        onFilesSelected={(files) => {
+                          // Convert FileList to event-like object for handleImageSelect
+                          const event = {
+                            target: {
+                              files: files
+                            }
+                          };
+                          handleImageSelect(event);
+                        }}
+                        multiple={true}
+                        maxFiles={10}
+                        existingImagesCount={(eventData.images || []).length + previewUrls.length}
                         disabled={uploading}
-                      >
-                        Add Event Images
-                      </Button>
+                      />
                     )}
                     
                     {/* Add more images button */}
                     {(previewUrls.length > 0 || (eventData.images && eventData.images.length > 0)) && (
-                      <Button
-                        variant="outlined"
-                        startIcon={<AddPhotoAlternateIcon />}
-                        onClick={triggerFileInput}
-                        sx={{ mb: 2 }}
-                        disabled={uploading}
-                        size="small"
-                      >
-                        Add More Images
-                      </Button>
+                      <Box sx={{ mt: 2, mb: 2 }}>
+                        <DragDropImageUpload
+                          onFilesSelected={(files) => {
+                            // Convert FileList to event-like object for handleImageSelect
+                            const event = {
+                              target: {
+                                files: files
+                              }
+                            };
+                            handleImageSelect(event);
+                          }}
+                          multiple={true}
+                          maxFiles={10}
+                          existingImagesCount={(eventData.images || []).length + previewUrls.length}
+                          disabled={uploading}
+                        />
+                      </Box>
                     )}
                     
                     {/* Upload progress and buttons */}

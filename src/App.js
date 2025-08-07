@@ -2,6 +2,8 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { DndProvider } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
 
 // Import theme
 import theme from './theme/theme';
@@ -42,9 +44,10 @@ const DashboardPage = () => <div>Dashboard Page - Coming Soon</div>;
 
 function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <AuthProvider>
+    <DndProvider backend={HTML5Backend}>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AuthProvider>
         <Router>
           <Layout>
             <Routes>
@@ -119,8 +122,9 @@ function App() {
             </Routes>
           </Layout>
         </Router>
-      </AuthProvider>
-    </ThemeProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </DndProvider>
   );
 }
 

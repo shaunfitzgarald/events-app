@@ -18,6 +18,37 @@ import PeopleIcon from '@mui/icons-material/People';
 import FavoriteBorderIcon from '@mui/icons-material/FavoriteBorder';
 import dayjs from 'dayjs';
 
+// Helper function to get the best available image for an event
+const getEventImage = (event) => {
+  // Priority order:
+  // 1. First image from images array (multi-image support)
+  // 2. Single image in images field (if it's a string)
+  // 3. Single image field (legacy format)
+  // 4. Category-based fallback image
+  
+  // Check for images array (new multi-image format)
+  if (event.images && Array.isArray(event.images) && event.images.length > 0) {
+    const firstImage = event.images[0];
+    if (firstImage && typeof firstImage === 'string' && firstImage.trim() !== '') {
+      return firstImage;
+    }
+  }
+  
+  // Check if event.images is a single string (not an array)
+  if (event.images && typeof event.images === 'string' && event.images.trim() !== '') {
+    return event.images;
+  }
+  
+  // Check for single image field (legacy format)
+  if (event.image && typeof event.image === 'string' && event.image.trim() !== '') {
+    return event.image;
+  }
+  
+  // Fallback to category-based image or generic event image
+  const category = event.category || 'event';
+  return `https://source.unsplash.com/800x400/?${encodeURIComponent(category)}`;
+};
+
 function EventCard({ event }) {
   const navigate = useNavigate();
   
@@ -60,17 +91,11 @@ function EventCard({ event }) {
       <CardMedia
         component="img"
         height="140"
-        image={
-          event.images && Array.isArray(event.images) && event.images.length > 0 && event.images[0]
-            ? event.images[0]
-            : event.image && typeof event.image === 'string' && event.image.startsWith('http')
-              ? event.image
-              : 'https://source.unsplash.com/random/800x400/?event'
-        }
+        image={getEventImage(event)}
         alt={event.title}
         onError={(e) => {
           console.log('Image failed to load:', e.target.src);
-          e.target.src = 'https://source.unsplash.com/random/800x400/?event';
+          e.target.src = `https://source.unsplash.com/800x400/?${encodeURIComponent(event.category || 'event')}`;
         }}
       />
       

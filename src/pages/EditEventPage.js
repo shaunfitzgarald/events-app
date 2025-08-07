@@ -39,6 +39,7 @@ import dayjs from 'dayjs';
 import { getEventById, updateEvent } from '../services/eventService';
 import { useAuth } from '../contexts/AuthContext';
 import { uploadMultipleImages } from '../services/storageService';
+import DragDropImageUpload from '../components/DragDropImageUpload';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
@@ -467,19 +468,17 @@ function EditEventPage() {
                     Drag to reorder images. The first image will be used as the main event image.
                   </Typography>
                   
-                  <DndProvider backend={HTML5Backend}>
-                    <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
-                      {formData.images.map((imageUrl, index) => (
-                        <DraggableImageItem
-                          key={index}
-                          index={index}
-                          imageUrl={imageUrl}
-                          moveImage={moveImage}
-                          removeImage={handleRemoveExistingImage}
-                        />
-                      ))}
-                    </Box>
-                  </DndProvider>
+                  <Box sx={{ maxHeight: 400, overflow: 'auto' }}>
+                    {formData.images.map((imageUrl, index) => (
+                      <DraggableImageItem
+                        key={index}
+                        index={index}
+                        imageUrl={imageUrl}
+                        moveImage={moveImage}
+                        removeImage={handleRemoveExistingImage}
+                      />
+                    ))}
+                  </Box>
                   
                   {/* Also show as grid for visual reference */}
                   <Typography variant="subtitle2" sx={{ mt: 2, mb: 1 }}>
@@ -510,36 +509,41 @@ function EditEventPage() {
                 </Typography>
               )}
               
-              {/* Image upload section */}
+              {/* Drag & Drop Image upload section */}
               <Box sx={{ mb: 2 }}>
-                <input
-                  accept="image/*"
-                  style={{ display: 'none' }}
-                  id="image-upload-button"
-                  multiple
-                  type="file"
-                  onChange={handleImageSelect}
-                />
-                <label htmlFor="image-upload-button">
-                  <Button
-                    variant="outlined"
-                    component="span"
-                    startIcon={<AddPhotoAlternateIcon />}
-                    sx={{ mr: 2 }}
-                  >
-                    Select Images
-                  </Button>
-                </label>
-                
-                {selectedImages.length > 0 && (
-                  <Button
-                    variant="contained"
-                    onClick={handleImageUpload}
-                    disabled={uploading}
-                  >
-                    Upload {selectedImages.length} {selectedImages.length === 1 ? 'Image' : 'Images'}
-                  </Button>
-                )}
+                <DragDropImageUpload
+                  onFilesSelected={(files) => {
+                    setSelectedImages(files);
+                  }}
+                  multiple={true}
+                  maxFiles={10}
+                  existingImagesCount={formData.images.length}
+                  disabled={uploading}
+                >
+                  {selectedImages.length > 0 && (
+                    <Box sx={{ mt: 2, pointerEvents: 'auto' }}>
+                      <Button
+                        variant="contained"
+                        onClick={handleImageUpload}
+                        disabled={uploading}
+                        sx={{
+                          borderRadius: 2,
+                          textTransform: 'none',
+                          fontWeight: 600
+                        }}
+                      >
+                        {uploading ? (
+                          <>
+                            <CircularProgress size={20} sx={{ mr: 1 }} />
+                            Uploading...
+                          </>
+                        ) : (
+                          `Upload ${selectedImages.length} ${selectedImages.length === 1 ? 'Image' : 'Images'}`
+                        )}
+                      </Button>
+                    </Box>
+                  )}
+                </DragDropImageUpload>
               </Box>
               
               {/* Selected images preview */}
